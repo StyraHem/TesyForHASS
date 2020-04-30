@@ -2,42 +2,62 @@
 Tesy platform for the climate component.
 
 #For more details about this platform, please refer to the documentation
-#https://home-assistant.io/components/te/
+#https://home-assistant.io/components/tesy/
 """
 
 import logging
 
-from homeassistant.const import (TEMP_CELSIUS, PRECISION_WHOLE, STATE_OFF, STATE_ON, TEMP_CELSIUS, ATTR_TEMPERATURE)
-
+from homeassistant.const import (
+    TEMP_CELSIUS,
+    PRECISION_WHOLE,
+    STATE_OFF,
+    STATE_ON,
+    TEMP_CELSIUS,
+    ATTR_TEMPERATURE
+)
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.components.water_heater import (WaterHeaterDevice, SUPPORT_OPERATION_MODE, SUPPORT_TARGET_TEMPERATURE)
-from . import (TESY_DEVICES, TESY_CONFIG, get_device_from_hass)
+from . import (TESY_DEVICES, TESY_CONFIG) #, get_device_from_hass)
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-STATES = { "OFF" : "off",
-           "READY" : "on",
-           "HEATING" : "heat" }
+STATES = {"OFF" : "off",
+          "READY" : "on",
+          "HEATING" : "heat"}
 
-async def async_setup_platform(hass, config, async_add_entities,
-                               discovery_info=None):
-    """Setup the Tesy Sensor platform."""
-    dev = get_device_from_hass(hass, discovery_info)
-    async_add_entities([TesyWaterHeater(dev, hass)])
+async def async_setup_entry(hass, _config_entry, async_add_entities):
+    """Set up Tesy sensor dynamically."""
+    async def async_discover_sensor(dev, instance):
+        """Discover and add a discovered sensor."""
+        async_add_entities([TesyWaterHeater(dev, instance)])
+
+    async_dispatcher_connect(
+        hass,
+        "tesy_new_water_heater",
+        async_discover_sensor
+    )
+
+# async def async_setup_platform(hass, _config, async_add_entities,
+#                                discovery_info=None):
+#     """Setup the Tesy Sensor platform."""
+#     dev = get_device_from_hass(hass, discovery_info)
+#     async_add_entities([TesyWaterHeater(dev, hass)])
 
 class TesyWaterHeater(WaterHeaterDevice):
     """Representation of a Shelly Sensor."""
 
-    def __init__(self, dev, hass):
+    def __init__(self, dev, instance):
         """Initialize an ShellySwitch."""
         self._unique_id = "tesy_" + dev.id
         self.entity_id = "water_heater.tesy_" + dev.id
-        self._config = hass.data[TESY_CONFIG]
+        self._config = instance.conf
         self._dev = dev
+        self._instance = instance
         dev.on_updated.append(self._updated)
-
         self._state = None
 
-    def _updated(self, dev):
+    def _updated(self, _dev):
         self.schedule_update_ha_state(True)
 
     @property
@@ -58,7 +78,7 @@ class TesyWaterHeater(WaterHeaterDevice):
     @property
     def supported_features(self):
         """Return the list of supported features."""
-        return SUPPORT_OPERATION_MODE | SUPPORT_TARGET_TEMPERATURE 
+        return SUPPORT_OPERATION_MODE | SUPPORT_TARGET_TEMPERATURE
 
     @property
     def current_temperature(self):
@@ -106,3 +126,16 @@ class TesyWaterHeater(WaterHeaterDevice):
     def operation_list(self):
         """Return the list of available operation modes."""
         return ["on", "off"]
+
+    @property
+    def device_info(self):
+        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+        return {
+            'identifiers': {
+                (DOMAIN, self._dev.id)
+            },
+            'name': self._dev.id,
+            'manufacturer': 'Tesy',
+            'model': "Heater",
+            'sw_version': "0.1"
+        }

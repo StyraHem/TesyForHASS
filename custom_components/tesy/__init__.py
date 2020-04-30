@@ -7,87 +7,106 @@ https://home-assistant.io/components/shelly/
 #from datetime import timedelta
 import logging
 
-import voluptuous as vol
-
 from homeassistant.const import (
-    CONF_HOSTS, CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME, 
+    CONF_HOSTS, CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME,
     EVENT_HOMEASSISTANT_STOP)
 from homeassistant.helpers import discovery
-import homeassistant.helpers.config_validation as cv
+from homeassistant import config_entries
+from .const import *
+from .configuration_schema import (CONFIG_SCHEMA_ROOT)
+from homeassistant.helpers.dispatcher import async_dispatcher_send
+import asyncio
 
-
-#REQUIREMENTS = ['pytesy==0.0.1']
+REQUIREMENTS = ['pytesy==0.0.3']
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = 'tesy'
-
-TESY_DEVICES = 'tesy_devices'
-TESY_HOSTS = 'tesy_hosts'
-TESY_CONFIG = 'tesy_cfg'
-
-TESY_DEVICE_ID = "tesy_device_id"
-
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 VERSION = __version__
 
-HOST_SCHEMA = vol.Schema({
-    vol.Required(CONF_USERNAME): cv.string,
-    vol.Required(CONF_PASSWORD): cv.string,
-})
-
-CONFIG_SCHEMA = vol.Schema({
-    DOMAIN: vol.Schema({
-        vol.Required(CONF_HOSTS,
-                      default=[]): vol.All(cv.ensure_list, [HOST_SCHEMA])
-    })
-}, extra=vol.ALLOW_EXTRA)
-
-HOSTS = []
-DEVICES = {}
-
-def _add_device_key(dev):
-    key = dev.id
-    if not key in DEVICES:
-        DEVICES[key] = dev
-    return key
-
-def get_device_from_hass(hass, discovery_info):
-    """Get device from HASS"""
-    device_key = discovery_info[TESY_DEVICE_ID]
-    return DEVICES[device_key]  
-
 async def async_setup(hass, config):
+    """Set up this integration using yaml."""
+    if DOMAIN not in config:
+        return True
+    data = dict(config.get(DOMAIN))
+    hass.data["yaml_tesy"] = data
+    hass.async_create_task(
+        hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_IMPORT}, data={}
+        )
+    )
+    return True
+
+async def async_setup_entry(hass, config_entry):
     """Setup Tesy component"""
-    _LOGGER.info("Starting tesy, %s", __version__)    
 
-    conf = config.get(DOMAIN, {})
-    #update_interval = conf.get(CONF_SCAN_INTERVAL)
-    hass.data[TESY_CONFIG] = conf
-    #discover = conf.get(CONF_DISCOVERY)
+    _LOGGER.info("Starting tesy, %s", __version__)
 
-    #try:
-    from .pytesy import PyTesy
-    _LOGGER.info("Loading local pyTesy")
-    #except ImportError:
-    #    from pytesy import pyTesy
+    if not DOMAIN in hass.data:
+        hass.data[DOMAIN] = {}
 
-    hass.data[TESY_HOSTS] = HOSTS
-    hass.data[TESY_DEVICES] = DEVICES
+    if config_entry.source == "import":
+        #if config_entry.options: #config.yaml
+        #    data = config_entry.options.copy()
+        #else:
+        if "yaml_tesy" in hass.data:
+            data = hass.data["yaml_tesy"]
+        else:
+            data = {}
+            await hass.config_entries.async_remove(config_entry.entry_id)
+    else:
+        data = config_entry.data.copy()
+        data.update(config_entry.options)
 
-    #_LOGGER.info("pyTesy, %s", tesy.version())
+    conf = CONFIG_SCHEMA_ROOT(data)
 
-    def device_added(device):
-        key = _add_device_key(device)
-        _LOGGER.info("Test device added {}", key)
-        attr = {TESY_DEVICE_ID : key}
-        discovery.load_platform(hass, 'water_heater', DOMAIN, attr, config)
+    hass.data[DOMAIN][config_entry.entry_id] = \
+        TesyInstance(hass, config_entry, conf)
 
-    for host in conf[CONF_HOSTS]:
-         tesy = PyTesy(host[CONF_USERNAME], host[CONF_PASSWORD])         
-         tesy.on_device_added.append(device_added)
-         HOSTS.append(tesy)
-         tesy.start(5)
+    return True
+
+class TesyInstance():
+    def __init__(self, hass, config_entry, conf):
+        self.hass = hass
+        self.config_entry = config_entry
+        self.conf = conf
+        self.platforms = {}
+
+        _LOGGER.info("Starting tesy, %s", __version__)
+
+        hass.loop.create_task(
+            self.start_up()
+        )
+
+    def device_added(self, device):
+        self.hass.add_job(self._async_add_device("water_heater", device))
+
+    async def _async_add_device(self, platform, device):
+        if platform not in self.platforms:
+            self.platforms[platform] = asyncio.Event()
+            await self.hass.config_entries.async_forward_entry_setup(
+                    self.config_entry, platform)
+            self.platforms[platform].set()
+
+        await self.platforms[platform].wait()
+        async_dispatcher_send(self.hass, "tesy_new_" + platform \
+                                , device, self)
+
+    async def start_up(self):
+        conf = self.conf
+
+        try:
+            from .pytesy import PyTesy
+            _LOGGER.info("Loading local pyTesy")
+        except ImportError:
+            from pyTesy import pyTesy
+
+        tesy = PyTesy(conf[CONF_USERNAME], conf[CONF_PASSWORD])
+        tesy.on_device_added.append(self.device_added)
+        self.pyTesy = tesy
+        tesy.start(5)
+
+        _LOGGER.info("pyTesy, %s", tesy.version)
 
     # def stop_tesy():
     #     """Stop Tesy."""
@@ -96,4 +115,4 @@ async def async_setup(hass, config):
 
     #hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop_tesy)
 
-    return True
+    #return True
