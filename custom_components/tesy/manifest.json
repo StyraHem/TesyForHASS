@@ -1,0 +1,8 @@
+{
+  "domain": "tesy",
+  "name": "Teasy water heate",
+  "documentation": "https://github.com/StyraHem/ShellyForHASS/blob/master/README.md",
+  "dependencies": [],
+  "codeowners": ["@hakana","@StyraHem"],
+  "requirements": ["pytesy==0.0.1"]
+}
