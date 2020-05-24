@@ -16,7 +16,7 @@ from homeassistant.const import (
     ATTR_TEMPERATURE
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.components.water_heater import (WaterHeaterDevice, SUPPORT_OPERATION_MODE, SUPPORT_TARGET_TEMPERATURE)
+from homeassistant.components.water_heater import (WaterHeaterEntity, SUPPORT_OPERATION_MODE, SUPPORT_TARGET_TEMPERATURE)
 from . import (TESY_DEVICES, TESY_CONFIG) #, get_device_from_hass)
 from .const import DOMAIN
 
@@ -44,7 +44,7 @@ async def async_setup_entry(hass, _config_entry, async_add_entities):
 #     dev = get_device_from_hass(hass, discovery_info)
 #     async_add_entities([TesyWaterHeater(dev, hass)])
 
-class TesyWaterHeater(WaterHeaterDevice):
+class TesyWaterHeater(WaterHeaterEntity):
     """Representation of a Shelly Sensor."""
 
     def __init__(self, dev, instance):
